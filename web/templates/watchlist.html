@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Stock Picks — {{ today.strftime('%b %d, %Y') }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">Stock Picks — {{ today.strftime('%A, %B %d, %Y') }}</h2>
+
+<section class="card">
+  <h3 class="card-title">⚡ Swing Picks <span class="sub">(days–weeks)</span></h3>
+  {% if swing_picks %}
+  <div class="picks-table-wrap">
+    <table class="picks-table">
+      <thead>
+        <tr>
+          <th>Stock</th>
+          <th>Direction</th>
+          <th>Entry Range</th>
+          <th>Target 1</th>
+          <th>Target 2</th>
+          <th>Stop Loss</th>
+          <th>Timeframe</th>
+          <th>Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pick in swing_picks %}
+        <tr>
+          <td><b>{{ pick.display_name or pick.ticker }}</b><br><small>{{ pick.ticker }}</small></td>
+          <td><span class="dir-badge {{ 'buy' if pick.direction == 'BUY' else 'sell' }}">{{ pick.direction }}</span></td>
+          <td>{{ pick.entry_range or '—' }}</td>
+          <td class="pos">{{ pick.target_1 or '—' }}</td>
+          <td class="pos">{{ pick.target_2 or '—' }}</td>
+          <td class="neg">{{ pick.stop_loss or '—' }}</td>
+          <td>{{ pick.timeframe or '—' }}</td>
+          <td><span class="confidence conf-{{ (pick.confidence or 'medium')|lower }}">{{ pick.confidence or '—' }}</span></td>
+        </tr>
+        <tr class="thesis-row">
+          <td colspan="8" class="thesis-cell">💡 {{ pick.thesis }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No swing picks generated yet for today. <a href="/" onclick="triggerRun()">Run the pipeline</a> first.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h3 class="card-title">🔭 Long-term Radar <span class="sub">(months+)</span></h3>
+  {% if longterm_radar %}
+  <div class="picks-table-wrap">
+    <table class="picks-table">
+      <thead>
+        <tr>
+          <th>Stock</th>
+          <th>Direction</th>
+          <th>Entry Zone</th>
+          <th>12-Month Target</th>
+          <th>Confidence</th>
+          <th>Thesis</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pick in longterm_radar %}
+        <tr>
+          <td><b>{{ pick.display_name or pick.ticker }}</b><br><small>{{ pick.ticker }}</small></td>
+          <td><span class="dir-badge {{ 'buy' if pick.direction in ['ACCUMULATE','BUY'] else 'sell' }}">{{ pick.direction }}</span></td>
+          <td>{{ pick.entry_range or '—' }}</td>
+          <td class="pos"><b>{{ pick.target_1 or '—' }}</b></td>
+          <td><span class="confidence conf-{{ (pick.confidence or 'medium')|lower }}">{{ pick.confidence or '—' }}</span></td>
+          <td class="thesis-cell">{{ pick.thesis }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No long-term ideas generated yet for today.</p>
+  {% endif %}
+</section>
+
+<p class="disclaimer">⚠ AI-generated recommendations are for educational/research purposes only. Not financial advice. Always do your own research before investing.</p>
+{% endblock %}

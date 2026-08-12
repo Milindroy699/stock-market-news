@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Market Digest{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <span class="logo">📈 Market Digest</span>
+      <nav>
+        <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>Today's Digest</a>
+        <a href="/picks" {% if request.url.path == '/picks' %}class="active"{% endif %}>Stock Picks</a>
+        <a href="/health">Status</a>
+      </nav>
+      <button id="run-btn" onclick="triggerRun()" title="Run pipeline now">⚡ Refresh Now</button>
+    </div>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>AI-generated for educational purposes only. Not financial advice.</p>
+  </footer>
+
+  <script>
+    async function triggerRun() {
+      const btn = document.getElementById('run-btn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Running…';
+      try {
+        const r = await fetch('/run-now');
+        const data = await r.json();
+        if (data.status === 'started') {
+          btn.textContent = '✅ Started! Refresh in ~2 min';
+        } else {
+          btn.textContent = '⚠ Already running';
+        }
+      } catch(e) {
+        btn.textContent = '❌ Error';
+      }
+      setTimeout(() => { btn.textContent = '⚡ Refresh Now'; btn.disabled = false; }, 5000);
+    }
+  </script>
+</body>
+</html>

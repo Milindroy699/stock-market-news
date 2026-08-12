@@ -1,0 +1,7 @@
+.env
+*.db
+audio_cache/
+pipeline.log
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Market Digest — {{ target_date.strftime('%b %d, %Y') }}{% endblock %}
+
+{% block content %}
+<!-- Date navigation -->
+<div class="date-nav">
+  <a href="/?d={{ prev_date }}" class="btn-nav">← {{ prev_date.strftime('%b %d') }}</a>
+  <h2 class="date-title">
+    {{ target_date.strftime('%A, %B %d, %Y') }}
+    {% if is_today %}<span class="badge-today">Today</span>{% endif %}
+  </h2>
+  {% if not is_today %}
+  <a href="/?d={{ next_date }}" class="btn-nav">{{ next_date.strftime('%b %d') }} →</a>
+  {% else %}
+  <span class="btn-nav disabled"></span>
+  {% endif %}
+</div>
+
+<!-- Pipeline status -->
+{% if pipeline_running %}
+<div class="alert alert-info">⏳ Pipeline is running — refresh in a minute or two.</div>
+{% elif not digest and is_today %}
+<div class="alert alert-warn">
+  No digest yet for today.
+  <button onclick="triggerRun()" class="btn-inline">Run now</button>
+</div>
+{% endif %}
+
+{% if last_run %}
+<p class="last-run-note">Last run: {{ last_run.run_date }} — {{ last_run.articles_fetched or 0 }} articles fetched</p>
+{% endif %}
+
+<!-- Two-column: stories + market snapshot -->
+<div class="grid-2">
+  <!-- Left: Top Stories -->
+  <section class="card">
+    <h3 class="card-title">Today's Top Stories</h3>
+    {% if digest and digest.top_stories %}
+      {% for story in digest.top_stories %}
+      <div class="story">
+        <span class="story-source">{{ story.source }}</span>
+        <p class="story-headline">{{ story.headline }}</p>
+        <p class="story-summary">{{ story.summary }}</p>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty">No stories available yet.</p>
+    {% endif %}
+  </section>
+
+  <!-- Right: Market Snapshot -->
+  <div>
+    <section class="card">
+      <h3 class="card-title">Market Snapshot</h3>
+      {% if snapshot and snapshot.indices %}
+        {% for name, data in snapshot.indices.items() %}
+        <div class="index-row">
+          <span class="index-name">{{ name }}</span>
+          <span class="index-price">{{ "{:,.0f}".format(data.price) }}</span>
+          <span class="index-change {{ 'pos' if data.change >= 0 else 'neg' }}">
+            {{ "{:+,.0f}".format(data.change) }} ({{ "{:+.2f}".format(data.change_pct) }}%)
+          </span>
+        </div>
+        {% endfor %}
+        {% if snapshot.fii_net is not none %}
+        <div class="fii-dii">
+          <span>FII: <b class="{{ 'pos' if snapshot.fii_net >= 0 else 'neg' }}">₹{{ "{:+,.0f}".format(snapshot.fii_net) }} Cr</b></span>
+          <span>DII: <b class="{{ 'pos' if snapshot.dii_net >= 0 else 'neg' }}">₹{{ "{:+,.0f}".format(snapshot.dii_net) }} Cr</b></span>
+        </div>
+        {% endif %}
+      {% else %}
+        <p class="empty">Market data unavailable.</p>
+      {% endif %}
+    </section>
+
+    <!-- Macro Theme -->
+    {% if digest and digest.macro_theme %}
+    <section class="card card-accent">
+      <h3 class="card-title">📌 Macro Theme This Week</h3>
+      <p class="macro-theme">{{ digest.macro_theme }}</p>
+    </section>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Sector Pulse -->
+{% if digest and digest.sector_pulse %}
+<section class="card">
+  <h3 class="card-title">Sector Pulse</h3>
+  <div class="sector-grid">
+    {% for sector, sentiment in digest.sector_pulse.items() %}
+    <div class="sector-chip {{ sentiment }}">
+      {{ sector_icons.get(sentiment, '⚪') }} {{ sector }}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<!-- Stock Picks -->
+<div class="grid-2">
+  <!-- Swing Picks -->
+  <section class="card">
+    <h3 class="card-title">⚡ Swing Picks <span class="sub">(days–weeks)</span></h3>
+    {% if swing_picks %}
+      {% for pick in swing_picks %}
+      <div class="pick-card {{ 'buy' if pick.direction == 'BUY' else 'sell' }}">
+        <div class="pick-header">
+          <span class="pick-name">{{ pick.display_name or pick.ticker }}</span>
+          <span class="pick-dir {{ 'buy' if pick.direction == 'BUY' else 'sell' }}">{{ pick.direction }}</span>
+          {% if pick.confidence %}
+          <span class="confidence conf-{{ pick.confidence|lower }}">{{ pick.confidence }}</span>
+          {% endif %}
+        </div>
+        <div class="pick-levels">
+          <span>Entry: <b>{{ pick.entry_range }}</b></span>
+          <span>T1: <b>{{ pick.target_1 }}</b></span>
+          {% if pick.target_2 %}<span>T2: <b>{{ pick.target_2 }}</b></span>{% endif %}
+          <span>SL: <b>{{ pick.stop_loss }}</b></span>
+        </div>
+        <p class="pick-thesis">{{ pick.thesis }}</p>
+        {% if pick.timeframe %}<p class="pick-tf">⏱ {{ pick.timeframe }}</p>{% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty">No swing picks for today.</p>
+    {% endif %}
+    <a href="/picks" class="see-all">See full analysis →</a>
+  </section>
+
+  <!-- Long-term Radar -->
+  <section class="card">
+    <h3 class="card-title">🔭 Long-term Radar <span class="sub">(months+)</span></h3>
+    {% if longterm_radar %}
+      {% for pick in longterm_radar %}
+      <div class="pick-card {{ 'buy' if pick.direction in ['ACCUMULATE','BUY'] else 'avoid' }}">
+        <div class="pick-header">
+          <span class="pick-name">{{ pick.display_name or pick.ticker }}</span>
+          <span class="pick-dir {{ 'buy' if pick.direction in ['ACCUMULATE','BUY'] else 'sell' }}">{{ pick.direction }}</span>
+          {% if pick.confidence %}
+          <span class="confidence conf-{{ pick.confidence|lower }}">{{ pick.confidence }}</span>
+          {% endif %}
+        </div>
+        <div class="pick-levels">
+          <span>Entry zone: <b>{{ pick.entry_range }}</b></span>
+          {% if pick.target_1 %}<span>12M Target: <b>{{ pick.target_1 }}</b></span>{% endif %}
+        </div>
+        <p class="pick-thesis">{{ pick.thesis }}</p>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty">No long-term ideas for today.</p>
+    {% endif %}
+  </section>
+</div>
+
+<!-- Podcast Briefs -->
+{% if digest and digest.podcast_briefs %}
+<section class="card">
+  <h3 class="card-title">🎙 Podcast & Video Briefs</h3>
+  <div class="podcast-grid">
+    {% for brief in digest.podcast_briefs %}
+    <div class="podcast-card">
+      <p class="podcast-source">{{ brief.source }}</p>
+      <p class="podcast-title">{{ brief.title }}</p>
+      <p class="podcast-topic"><em>{{ brief.main_topic }}</em></p>
+      <ul class="podcast-insights">
+        {% for insight in (brief.insights or [])[:4] %}
+        <li>{{ insight }}</li>
+        {% endfor %}
+      </ul>
+      {% if brief.stocks_mentioned %}
+      <p class="podcast-stocks">Stocks: {{ brief.stocks_mentioned | join(', ') }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<!-- Disclaimer -->
+<p class="disclaimer">⚠ AI-generated recommendations are for educational/research purposes only. Not financial advice. Always do your own research.</p>
+{% endblock %}
