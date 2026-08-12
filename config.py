@@ -32,7 +32,7 @@ YOUTUBE_CHANNELS = [
 ]
 
 SCHEDULE_TIME = os.getenv("SCHEDULE_TIME", "07:00")
-WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
+WEB_PORT = int(os.getenv("PORT", os.getenv("WEB_PORT", "8000")))
 
 THE_KEN_COOKIE_STRING = os.getenv("THE_KEN_COOKIE_STRING", "")
 
