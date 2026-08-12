@@ -1,13 +1,41 @@
-"""Computes technical indicators for each stock and updates DB + returns signals."""
+"""Computes technical indicators for each stock using pure pandas (no pandas-ta)."""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import date
 import pandas as pd
-import pandas_ta as ta
 import config
 from agents.market_data import fetch_ohlcv
 from storage.db import get_session, StockData, init_db
+
+
+def _ema(series: pd.Series, span: int) -> pd.Series:
+    return series.ewm(span=span, adjust=False).mean()
+
+
+def _rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(com=period - 1, adjust=False).mean()
+    avg_loss = loss.ewm(com=period - 1, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float("nan"))
+    return 100 - (100 / (1 + rs))
+
+
+def _macd(series: pd.Series, fast=12, slow=26, signal=9):
+    ema_fast = _ema(series, fast)
+    ema_slow = _ema(series, slow)
+    macd_line = ema_fast - ema_slow
+    signal_line = _ema(macd_line, signal)
+    hist = macd_line - signal_line
+    return macd_line, signal_line, hist
+
+
+def _bbands(series: pd.Series, period: int = 20):
+    mid = series.rolling(period).mean()
+    std = series.rolling(period).std()
+    return mid + 2 * std, mid - 2 * std
 
 
 def compute_indicators(df: pd.DataFrame) -> dict:
@@ -20,51 +48,37 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     low = df["low"]
     volume = df["volume"]
 
-    rsi = ta.rsi(close, length=14)
-    macd_df = ta.macd(close, fast=12, slow=26, signal=9)
-    bb = ta.bbands(close, length=20)
-    ema20 = ta.ema(close, length=20)
-    ema50 = ta.ema(close, length=50)
-    ema200 = ta.ema(close, length=200)
+    rsi = _rsi(close, 14)
+    macd_line, signal_line, hist = _macd(close)
+    bb_upper, bb_lower = _bbands(close, 20)
+    ema20 = _ema(close, 20)
+    ema50 = _ema(close, 50)
+    ema200 = _ema(close, 200)
 
-    last = -1
+    def last_val(s):
+        v = s.dropna()
+        return round(float(v.iloc[-1]), 4) if not v.empty else None
+
     result = {
-        "rsi_14": round(float(rsi.iloc[last]), 2) if rsi is not None and not rsi.empty else None,
-        "macd": None,
-        "macd_signal": None,
-        "macd_hist": None,
-        "bb_upper": None,
-        "bb_lower": None,
-        "ema_20": round(float(ema20.iloc[last]), 2) if ema20 is not None else None,
-        "ema_50": round(float(ema50.iloc[last]), 2) if ema50 is not None and len(ema50.dropna()) > 0 else None,
-        "ema_200": round(float(ema200.iloc[last]), 2) if ema200 is not None and len(ema200.dropna()) > 0 else None,
+        "rsi_14":     last_val(rsi),
+        "macd":       last_val(macd_line),
+        "macd_signal": last_val(signal_line),
+        "macd_hist":  last_val(hist),
+        "bb_upper":   last_val(bb_upper),
+        "bb_lower":   last_val(bb_lower),
+        "ema_20":     last_val(ema20),
+        "ema_50":     last_val(ema50),
+        "ema_200":    last_val(ema200),
     }
 
-    if macd_df is not None and not macd_df.empty:
-        cols = macd_df.columns.tolist()
-        result["macd"] = round(float(macd_df[cols[0]].iloc[last]), 4)
-        result["macd_signal"] = round(float(macd_df[cols[1]].iloc[last]), 4)
-        result["macd_hist"] = round(float(macd_df[cols[2]].iloc[last]), 4)
-
-    if bb is not None and not bb.empty:
-        cols = bb.columns.tolist()
-        result["bb_upper"] = round(float(bb[cols[0]].iloc[last]), 2)
-        result["bb_lower"] = round(float(bb[cols[2]].iloc[last]), 2)
-
-    # Derive readable signals
-    cur_close = float(close.iloc[last])
+    cur_close = float(close.iloc[-1])
     signals = {}
 
     if result["rsi_14"]:
         r = result["rsi_14"]
-        if r < 30:
-            signals["rsi"] = "oversold"
-        elif r > 70:
-            signals["rsi"] = "overbought"
-        else:
-            signals["rsi"] = "neutral"
+        signals["rsi"] = "oversold" if r < 30 else "overbought" if r > 70 else "neutral"
 
-    if result["macd"] and result["macd_signal"]:
+    if result["macd"] is not None and result["macd_signal"] is not None:
         signals["macd"] = "bullish_cross" if result["macd"] > result["macd_signal"] else "bearish_cross"
 
     if result["ema_20"]:
@@ -74,7 +88,6 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     if result["ema_200"]:
         signals["vs_ema200"] = "above" if cur_close > result["ema_200"] else "below"
 
-    # Trend: price above both EMA50 and EMA200 = uptrend
     above_50 = signals.get("vs_ema50") == "above"
     above_200 = signals.get("vs_ema200") == "above"
     if above_50 and above_200:
@@ -84,12 +97,10 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     else:
         signals["trend"] = "mixed"
 
-    # Volume spike: today's volume > 1.5x 20-day average
     avg_vol = float(volume.iloc[-20:].mean())
-    cur_vol = float(volume.iloc[last])
+    cur_vol = float(volume.iloc[-1])
     signals["volume_spike"] = cur_vol > avg_vol * 1.5
 
-    # Simple support/resistance: recent 20-day low/high
     signals["support"] = round(float(low.iloc[-20:].min()), 2)
     signals["resistance"] = round(float(high.iloc[-20:].max()), 2)
 
@@ -115,7 +126,7 @@ def update_stock_indicators(ticker: str, df: pd.DataFrame) -> dict:
     return indicators
 
 
-def run_for_all() -> dict[str, dict]:
+def run_for_all() -> dict:
     init_db()
     results = {}
     for ticker in config.WATCHLIST:
