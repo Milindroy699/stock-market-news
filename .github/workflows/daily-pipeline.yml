@@ -1,0 +1,21 @@
+name: Daily Market Digest Pipeline
+
+on:
+  schedule:
+    # 07:00 IST = 01:30 UTC
+    - cron: '30 1 * * *'
+  workflow_dispatch: # allow manual trigger from GitHub UI
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake service and run pipeline
+        run: |
+          echo "Triggering pipeline at $(date -u)"
+          # Wake the service (free tier may be sleeping)
+          curl -s --max-time 60 https://market-digest.onrender.com/health || true
+          sleep 5
+          # Trigger the pipeline
+          curl -s --max-time 30 https://market-digest.onrender.com/run-now
+          echo "Pipeline triggered."
